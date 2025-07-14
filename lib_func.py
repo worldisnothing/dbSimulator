@@ -26,6 +26,7 @@ def is_valid_command(in_command: str) -> bool:
 
     return key_command in conf and conf[key_command] == len(command_args) - 1
 
+
 class DBSimulator:
     """
     Класс симулятора БД
@@ -70,7 +71,6 @@ class DBSimulator:
         # сразу обрабатываем, т.к. все проверки пройдены в is_valid_command (в main.py)
         handlers[key_cmd](args)
 
-
     def set(self, args: List):
         """
         Записывает переданное значение в БД
@@ -78,6 +78,9 @@ class DBSimulator:
         :param args: список, где первый элемент - ключ, второй - значение
         """
         k, v = args
+        if self._transactions:
+            if k not in self._transactions[-1]:
+                self._transactions[-1][k] = self.db.get(k, None)
         self.db[k] = v
 
     def get(self, args: List):
@@ -96,6 +99,9 @@ class DBSimulator:
         :param args: список, где первый элемент - ключ удаляемого значения
         """
         k = args[0]
+        if self._transactions:
+            if k not in self._transactions[-1]:
+                self._transactions[-1][k] = self.db.get(k, None)
         self.db.pop(k, None)
 
     def counts(self, args: List):
@@ -121,18 +127,27 @@ class DBSimulator:
         """
         Начинает новую вложенную транзакцию
         """
-        self._transactions.append(self.db.copy())
+        self._transactions.append({})
 
     def rollback(self, args: List[str]):
         """
         Откатывает вложенную транзакцию
         """
         if self._transactions:
-            self.db = self._transactions.pop()
+            changes = self._transactions.pop()
+            for k, old_val in changes.items():
+                if old_val is None:
+                    self.db.pop(k, None)
+                else:
+                    self.db[k] = old_val
 
     def commit(self, args: List[str]):
         """
         Закрывает ВСЕ вложенные транзакции, сохраняет состояние последней. Rollback больше не работает
         """
         if self._transactions:
-            self._transactions.clear()
+            changes = self._transactions.pop()
+            if self._transactions:
+                for k, old_val in changes.items():
+                    if k not in self._transactions[-1]:
+                        self._transactions[-1][k] = old_val
